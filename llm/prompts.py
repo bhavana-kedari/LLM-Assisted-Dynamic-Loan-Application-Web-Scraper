@@ -122,16 +122,38 @@ Given the page snippet:
 
 Return JSON:
 {{
-  "form_name":"Personal Loan Application",
+  "form_name": "Personal Loan Application",
   "multi_step": true,
   "steps_count": 3,
   "fields": [
-    {{"name":"First name", "input_type":"text", "required":true, "selector_hint":"input[name='first_name']","notes":""}}
+    {{
+      "field_name": "First name",
+      "input_type": "text",
+      "required": true,
+      "selector_hint": "input[name='first_name']",
+      "options": "N/A"
+    }},
+    {{
+      "field_name": "Gender",
+      "input_type": "radio",
+      "required": true,
+      "selector_hint": "input[name='gender']",
+      "options": "[M,F,O]"
+    }},
+    {{
+      "field_name": "City",
+      "input_type": "dropdown",
+      "required": true,
+      "selector_hint": "select[name='city']",
+      "options": "[boston, new york, san francisco]"
+    }}
   ],
   "confidence": 0.0
 }}
 Only output JSON.
 """
+
+
 
 PROMPT_SUGGEST_NEXT = """
 You are a scraper assistant that should suggest the UI elements which go to the next step in a multi-step application.

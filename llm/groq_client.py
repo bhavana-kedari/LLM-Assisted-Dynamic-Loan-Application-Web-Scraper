@@ -44,10 +44,11 @@ class GroqClientAsync:
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
+
     async def find_next_or_submit_button(self, html: str, snippet: str):
         """
         Ask Groq to classify the main action button as either 'next' or 'submit'
-        and return the type along with the CSS/XPath selectors.
+        and return JSON with the type and selectors.
         """
         prompt = f"""
         You are an expert at analyzing HTML pages. 
@@ -73,11 +74,24 @@ class GroqClientAsync:
 
         import json
         try:
-            parsed = json.loads(response.choices[0].message.content)
-            return parsed.get("page_type", "none"), parsed.get("selectors", [])
+            raw = response.choices[0].message.content
+            parsed = json.loads(raw)
+
+            page_type = parsed.get("page_type", "none")
+            selectors = parsed.get("selectors", [])
+
+            # Adapt to simulate_form_fill_node expectations
+            return {
+                "page_type": page_type,
+                "next_selectors": selectors
+            }
+
         except Exception as e:
             self.logger.error(f"Error parsing Groq response for next/submit: {e}")
-            return "none", []
+            return {
+                "page_type": "none",
+                "next_selectors": []
+            }
 
 
     async def _call(self, prompt: str, max_tokens: int = 800) -> Dict[str, Any]:

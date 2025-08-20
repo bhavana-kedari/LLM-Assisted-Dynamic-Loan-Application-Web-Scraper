@@ -43,17 +43,17 @@ class GraphState(TypedDict, total=False):
     url: Annotated[str, overwrite]
     snippet: Annotated[str, overwrite]
     classification: Annotated[str, overwrite]
-    classification_llm: Annotated[Dict[str, Any], overwrite]  # Added overwrite annotation
-    intermediate_llm: Annotated[Dict[str, Any], overwrite]    # Added overwrite annotation
-    form_llm: Annotated[Dict[str, Any], overwrite]           # Added overwrite annotation
+    classification_llm: Annotated[Dict[str, Any], overwrite]  
+    intermediate_llm: Annotated[Dict[str, Any], overwrite]    
+    form_llm: Annotated[Dict[str, Any], overwrite]           
     actions: Annotated[List[Dict[str, Any]], operator.add]
     _new_actions: Annotated[List[Dict[str, Any]], operator.add]
-    forms: Annotated[List[Dict[str, Any]], operator.add]     # Added add annotation
-    human_confirm: Annotated[Dict[str, Any], overwrite]      # Added overwrite annotation
+    forms: Annotated[List[Dict[str, Any]], operator.add]    
+    human_confirm: Annotated[Dict[str, Any], overwrite]      
     runtime: Annotated[Dict[str, Any], operator.ior]
-    already_clicked: Annotated[List[str], operator.add]      # Added add annotation
-    visited_urls: Annotated[List[str], operator.add]         # Added add annotation
-    intermediate_visits: Annotated[int, operator.add]         # Track number of intermediate page visits
+    already_clicked: Annotated[List[str], operator.add]     
+    visited_urls: Annotated[List[str], operator.add]         
+    intermediate_visits: Annotated[int, operator.add]  
 
 
 class AsyncLangGraphOrchestrator:
@@ -81,8 +81,7 @@ class AsyncLangGraphOrchestrator:
         # Flow
         builder.add_edge(START, "landing_page_node")
         builder.add_edge("landing_page_node", "classify_page_node")
-        
-        # Conditional routing based on page classification and visit limits
+
         builder.add_conditional_edges(
             "classify_page_node",
             lambda state: (
@@ -127,28 +126,28 @@ class AsyncLangGraphOrchestrator:
         prompt = {
             "role": "user",
             "content": f"""Given this button text: "{button_text}"
-Generate effective CSS and XPath selectors to find the button element. The selectors should be robust and consider different potential HTML structures.
-Consider using multiple approaches:
-1. Text-based selectors (exact and partial matches)
-2. Button/link specific selectors
-3. Role-based selectors
-4. Class/ID based selectors if consistent patterns are found
-5. Parent-child relationships if helpful
+            Generate effective CSS and XPath selectors to find the button element. The selectors should be robust and consider different potential HTML structures.
+            Consider using multiple approaches:
+            1. Text-based selectors (exact and partial matches)
+            2. Button/link specific selectors
+            3. Role-based selectors
+            4. Class/ID based selectors if consistent patterns are found
+            5. Parent-child relationships if helpful
 
-Format your response as a JSON array of objects with 'selector' and 'type' fields. Example:
-[
-    {{"selector": "//button[contains(text(), 'Apply Now')]", "type": "xpath"}},
-    {{"selector": "button:has-text('Apply Now')", "type": "css"}}
-]
+            Format your response as a JSON array of objects with 'selector' and 'type' fields. Example:
+            [
+                {{"selector": "//button[contains(text(), 'Apply Now')]", "type": "xpath"}},
+                {{"selector": "button:has-text('Apply Now')", "type": "css"}}
+            ]
 
-Focus on these selector patterns:
-- XPath: exact text match: //button[text()='{button_text}']
-- XPath: contains text: //button[contains(text(), '{button_text}')]
-- XPath: normalize-space: //button[normalize-space()='{button_text}']
-- XPath: case-insensitive: //button[contains(translate(text(),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'{button_text.lower()}')]
-- CSS: Playwright specific: button:has-text('{button_text}')
-- CSS: with role: [role='button']:has-text('{button_text}')
-- Combined: Multiple attributes: //button[@type='submit'][contains(text(), '{button_text}')]"""}
+            Focus on these selector patterns:
+            - XPath: exact text match: //button[text()='{button_text}']
+            - XPath: contains text: //button[contains(text(), '{button_text}')]
+            - XPath: normalize-space: //button[normalize-space()='{button_text}']
+            - XPath: case-insensitive: //button[contains(translate(text(),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'{button_text.lower()}')]
+            - CSS: Playwright specific: button:has-text('{button_text}')
+            - CSS: with role: [role='button']:has-text('{button_text}')
+            - Combined: Multiple attributes: //button[@type='submit'][contains(text(), '{button_text}')]"""}
         
         try:
             llm_result = await self.groq.raw_completion({"messages": [prompt]})
@@ -171,55 +170,6 @@ Focus on these selector patterns:
             logger.error(f"Error getting LLM selectors: {str(e)}")
             return []
 
-        # Nodes
-        builder.add_node(self.classify_page_node)
-        builder.add_node(self.landing_page_node)
-        builder.add_node(self.intermediate_page_node)
-        builder.add_node(self.simulate_form_fill_node)
-        builder.add_node(self.extract_form_fields_node)
-        builder.add_node(self.find_submit_or_next_button_node)
-        builder.add_node(self.merge_actions_node)
-        builder.add_node(self.end_node)
-
-        # Flow
-        builder.add_edge(START, "landing_page_node")
-        builder.add_edge("landing_page_node", "classify_page_node")
-        
-        # Conditional routing based on page classification and visit limits
-        builder.add_conditional_edges(
-            "classify_page_node",
-            lambda state: (
-                "end_node" if state.get("intermediate_visits", 0) >= 2 
-                else "intermediate_page_node" if state.get("classification") == "intermediate" 
-                else "extract_form_fields_node"
-            ),
-            {
-                "intermediate_page_node": "intermediate_page_node",
-                "extract_form_fields_node": "extract_form_fields_node",
-                "end_node": "end_node"
-            }
-        )
-        
-        # After intermediate page, go back to classify the next page
-        builder.add_edge("intermediate_page_node", "classify_page_node")
-        
-        # Form page flow - conditional based on multi-step
-        builder.add_conditional_edges(
-            "extract_form_fields_node",
-            lambda state: "simulate_form_fill_node" if state.get("form_llm", {}).get("multi_step") else "end_node",
-            {
-                "simulate_form_fill_node": "simulate_form_fill_node",
-                "end_node": "end_node"
-            }
-        )
-        
-        # After simulating form fill, go back to extract fields from next form page
-        builder.add_edge("simulate_form_fill_node", "extract_form_fields_node")
-        builder.add_edge("end_node", END)
-        # builder.add_edge("extract_form_fields_node", "find_submit_or_next_button_node")
-        # builder.add_edge("extract_form_fields_node", "end_node")
-
-        self.graph = builder.compile()
 
     async def invoke_start(self, url: str, html: str, snippet: str) -> Dict[str, Any]:
         state: GraphState = {
@@ -304,88 +254,72 @@ Focus on these selector patterns:
 
     async def intermediate_page_node(self, state: GraphState) -> GraphState:
         print("[TRACE] Entering intermediate_page_node")
-        # Check if we have a current_url from a successful navigation
-        current_url = state.get("current_url")
-        if current_url and current_url != state.get("url"):
-            logger.info(f"Staying on successfully navigated URL: {current_url}")
-            return {
-                "url": current_url,
-                "html": state.get("html"),
-                "snippet": state.get("snippet"),
-                "_new_actions": [{"type": "staying_on_current_page"}]
-            }
-            
+
         # Increment the intermediate page visit counter
         intermediate_visits = state.get("intermediate_visits", 0) + 1
         snippet = state.get("snippet", "")
-        # Get options and let human choose
+
+        # Get options
         llm_resp = await self.groq.analyze_intermediate_options(snippet=snippet)
-        
+        current_url = state.get("current_url") or state.get("url")
+
         if self.human_in_loop:
-            # Present options to human and get their choice
+            # Present options to human
             options = llm_resp.get("options", [])
             print("\n=== Available Loan Options ===")
             print("Please choose one of the following options by entering its number:")
-            
-            # Filter and sort options - recommended ones first
+
             recommended = [opt for opt in options if opt.get("recommended", False)]
             others = [opt for opt in options if not opt.get("recommended", False)]
             sorted_options = recommended + others
-            
+
             for i, opt in enumerate(sorted_options, 1):
                 print(f"\n{i}. {opt.get('text', '')}")
                 print(f"   Description: {opt.get('description', 'No description available')}")
                 if opt.get("recommended"):
                     print("   ✨ [Recommended Option]")
-            
-            print("\nEnter a number (1-{}) to select an option, or 'q' to quit: ".format(len(sorted_options)))
-            choice = input("Your choice: ").strip().lower()
-            
+
+            choice = input(f"\nEnter a number (1-{len(sorted_options)}) or 'q' to quit: ").strip().lower()
+
             if choice == 'q':
                 logger.info("User chose to quit")
                 return {"_new_actions": [{"type": "human_cancelled"}]}
-                
+
             try:
                 idx = int(choice) - 1
                 if 0 <= idx < len(sorted_options):
                     selected = sorted_options[idx]
                     logger.info(f"User selected option: {selected.get('text')}")
-                    nav_result = await self._try_selectors(state.get("url"), [selected], state)
+                    nav_result = await self._try_selectors(current_url, [selected], state)
                 else:
                     logger.error(f"Invalid choice number: {choice}")
                     return {"_new_actions": [{"type": "human_choice_invalid"}]}
             except (ValueError, IndexError) as e:
                 logger.error(f"Invalid input: {choice} - {str(e)}")
                 return {"_new_actions": [{"type": "human_choice_invalid"}]}
-            try:
-                selected = options[int(choice)-1]
-                nav_result = await self._try_selectors(state.get("url"), [selected], state)
-            except (ValueError, IndexError):
-                logger.error("Invalid choice")
-                return {"_new_actions": [{"type": "human_choice_failed"}]}
+
         else:
-            # If no human intervention, try all options
-            nav_result = await self._try_selectors(state.get("url"), llm_resp.get("options", []), state)
+            # Auto-select path (LLM)
+            nav_result = await self._try_selectors(current_url, llm_resp.get("options", []), state)
 
         if nav_result:
-            # Get what we need before cleaning up
             url = nav_result["url"]
             html = nav_result["html"]
             selector = nav_result["selector"]
-            
-            # Clean up browser if it exists
+
             if "browser" in nav_result:
                 try:
                     await nav_result["browser"].close()
                 except Exception:
                     pass
-                    
+
             return {
                 "url": url,
                 "html": html,
                 "snippet": html_to_text(html)[:4000],
                 "_new_actions": [{"type": "intermediate_option_selected", "selector_used": selector}],
                 "intermediate_visits": intermediate_visits,
+                "current_url": url,  # persist new location
             }
         else:
             return {
@@ -393,10 +327,12 @@ Focus on these selector patterns:
                 "intermediate_visits": intermediate_visits,
             }
 
+
     async def simulate_form_fill_node(self, state: GraphState) -> GraphState:
         print(f"[TRACE] Entering simulate_form_fill_node")
+        html = state.get("html", "")
         snippet = state.get("snippet", "")
-        llm_resp = await self.groq.extract_form_navigation(snippet=snippet)
+        llm_resp = await self.groq.find_next_or_submit_button(html = html,snippet=snippet)
         next_selectors = llm_resp.get("next_selectors", [])
         nav_result = await self._try_selectors(state.get("url"), next_selectors, state)
 
@@ -672,14 +608,12 @@ Focus on these selector patterns:
                                     # Get the updated content
                                     html = await page.content()
                                     
-                                    # Update state
                                     state.setdefault("already_clicked", []).append(sel)
                                     state.setdefault("visited_urls", []).append(nav_url)
                                     
                                     logger.info(f"Successfully clicked element. New URL: {nav_url}")
                                     
-                                    # Store the successfully navigated URL in state
-                                    # This will be used to prevent going back to the previous URL
+                            
                                     state["current_url"] = nav_url
                                     
                                     return {
@@ -696,7 +630,6 @@ Focus on these selector patterns:
                         logger.error(f"Error with selector '{sel}': {str(e)}")
                         continue
 
-            # Only close if we've tried all selectors and none worked
             await browser.close()
             logger.info("No successful clicks, closing browser")
         return None 
